@@ -6,8 +6,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 #######################################################################
 ## functions
 #######################################################################
-# loggers for syslog local0
-# TODO: syslog or stdout/stderr?!
+# loggers for syslog local0 and stdout/stderr
 def logger_error(log_text):
     syslog.syslog(syslog.LOG_LOCAL0 | syslog.LOG_ERR, log_text)
     print('E: ' + log_text, file=sys.stderr)
@@ -115,37 +114,24 @@ class R10kwebhook(SimpleHTTPRequestHandler):
         else:
             try:
                 payload_json = json.loads(payload.decode('utf8'))
-            except json.decoder.JSONDecodeError as exception:
-                logger_warning('Could not decode json payload: ' + str(exception))
-                return
-
-            if self.path == '/api/v1/r10k/environment/':
-                try:
-                    # why split: e.g. take 'dev' out of 'refs/heads/dev'
+                if self.path == '/api/v1/r10k/environment/':
+                    # split: e.g. take 'dev' out of 'refs/heads/dev'
                     r10k_environment = payload_json["ref"].split("/")[-1]
-                except KeyError:
-                    logger_warning('Could not find key "ref" in json payload.')
-                    return
-
-                logger_info('Triggering r10k environment deployment for env "' + r10k_environment + '"...')
-                os.environ['R10KENV'] = r10k_environment
-                os.system(r10k_environment_command)
-
-            elif self.path == '/api/v1/r10k/module/':
-                # why split: take the string behind the last '-' to support common Pupppet module names
-                try:
-                    modulename = payload_json["project"]["name"].split("-")[-1]
-                except KeyError:
-                    logger_warning('Could not find key "project/name" in json payload.')
-                    return
-
-                logger_info('Triggering r10k module deployment for mod "' + modulename + '"...')
-                os.environ['R10KMODULE'] = modulename
-                os.system(r10k_module_command)
-
-            else:
-                logger_warning('Ignoring path "' + self.path + '".')
-
+                    logger_info('Triggering r10k environment deployment for env "' + r10k_environment + '"...')
+                    os.environ['R10KENV'] = r10k_environment
+                    os.system(r10k_environment_command)
+                elif self.path == '/api/v1/r10k/module/':
+                    # split: take the string behind the last '-' to support common Puppet module names
+                    r10k_modulename = payload_json["project"]["name"].split("-")[-1]
+                    logger_info('Triggering r10k module deployment for mod "' + r10k_modulename + '"...')
+                    os.environ['R10KMODULE'] = r10k_modulename
+                    os.system(r10k_module_command)
+                else:
+                    logger_warning('Ignoring path "' + self.path + '".')
+            except KeyError as key_xcpt:
+                logger_warning('Could not find key in payload: ' + str(key_xcpt))
+            except json.decoder.JSONDecodeError as json_xcpt:
+                logger_warning('Could not decode json payload: ' + str(json_xcpt))
         return
 
 # provide ipv6 server
@@ -159,7 +145,6 @@ class HTTPServerV6(HTTPServer):
 try:
     config_file = sys.argv[1]
 
-# if no config-file was given exit out
 except IndexError:
     logger_error('Missing config file in params. Syntax: "' + sys.argv[0] + ' /path/to/<config.ini>"')
     exit(1)
