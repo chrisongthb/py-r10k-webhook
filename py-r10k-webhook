@@ -7,21 +7,22 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 ## functions
 #######################################################################
 # loggers for syslog local0 and stdout/stderr
+# activate print statements, if you want to have logs also on console
 def logger_error(log_text):
     syslog.syslog(syslog.LOG_LOCAL0 | syslog.LOG_ERR, log_text)
-    print('E: ' + log_text, file=sys.stderr)
+    # print('E: ' + log_text, file=sys.stderr)
 
 def logger_warning(log_text):
     syslog.syslog(syslog.LOG_LOCAL0 | syslog.LOG_WARNING, log_text)
-    print('W: ' + log_text,file=sys.stderr)
+    # print('W: ' + log_text,file=sys.stderr)
 
 def logger_info(log_text):
     syslog.syslog(syslog.LOG_LOCAL0 | syslog.LOG_INFO, log_text)
-    print('I: ' + log_text)
+    # print('I: ' + log_text)
 
 def logger_debug(log_text):
     syslog.syslog(syslog.LOG_LOCAL0 | syslog.LOG_DEBUG, log_text)
-    print('D: ' + log_text)
+    # print('D: ' + log_text)
 
 # config parser
 def get_r10kwebhook_config(config, section, option, default_value=None):
