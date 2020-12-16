@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import http, os, json, re, sys, syslog, configparser, socket, ssl
+import http, os, json, re, sys, syslog, configparser, socket, ssl, base64
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 #######################################################################
@@ -105,6 +105,9 @@ class R10kwebhook(SimpleHTTPRequestHandler):
         elif not 'Push Hook' in str(self.headers):
             logger_warning('Ignoring Request. Expected X-Gitlab-Event: "Push Hook" not found in headers.')
 
+        elif base64key != None and not ('Authorization' in str(self.headers) and str('Basic ' + base64key) in str(self.headers)):
+            logger_warning('Ignoring Request. Authorization failed.')
+
         # all header checks passed
         # continuing with path check
         # for example payload see
@@ -166,13 +169,27 @@ with open(config_file, 'r', encoding='utf-8') as f:
     config = configparser.ConfigParser()
     config.read_file(f)
 
-# parse config
-# for ssl params see get_r10kwebhook_socket
+# parse configs
 logger_info('Parsing configs from "' + config_file + '"...')
+
+# for ssl params see function get_r10kwebhook_socket
 listen_addr              = get_r10kwebhook_config(config, 'main', 'listen_addr')
 listen_port              = get_r10kwebhook_config(config, 'main', 'listen_port')
 r10k_module_command      = get_r10kwebhook_config(config, 'r10k', 'r10k_module_command', 'r10k deploy environment "$R10KENV" -v -p')
 r10k_environment_command = get_r10kwebhook_config(config, 'r10k', 'r10k_environment_command', 'r10k deploy module "$R10KMODULE" -v')
+
+# prepare basic auth
+try:
+    basic_auth_user = get_r10kwebhook_config(config, 'auth', 'user')
+    basic_auth_pass = get_r10kwebhook_config(config, 'auth', 'pass')
+    # encode user:pass string
+    logger_info('Configuring basic auth...')
+    base64key       = base64.b64encode(bytes(basic_auth_user + ':' + basic_auth_pass, 'utf-8')).decode("utf-8")
+
+except configparser.NoOptionError:
+    base64key = None
+    logger_warning('Not using basic authentication.')
+
 
 # Build HTTPServer, depending on configured listen_address
 try:
