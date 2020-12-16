@@ -35,7 +35,7 @@ def get_r10kwebhook_config(config, section, option, default_value=None):
         return default_value
 
     else:
-        logger_error('Key [' + section + ']/[' + option + '] not found in config file and no value pre-definded.')
+        logger_warning('Key [' + section + ']/[' + option + '] not found in config file.')
         raise configparser.NoOptionError(option, section)
 
 # socket config parser
@@ -55,7 +55,7 @@ def get_r10kwebhook_socket(config, httpd):
         except configparser.NoOptionError:
             logger_warning('Could not configure ssl_ca for https socket. Using weak SSL (only ssl_cert + ssl_key).')
             return ssl.wrap_socket(httpd.socket, certfile=ssl_cert, keyfile=ssl_key, server_side=True)
-    
+
     else:
         logger_warning('Section "ssl" is not configured in ' + config_file + '. Falling back to HTTP - only')
         return httpd.socket
@@ -98,7 +98,7 @@ class R10kwebhook(SimpleHTTPRequestHandler):
         # https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#push-events
         if not self.headers.get_content_type() == 'application/json':
             logger_warning('Ignoring request. Expected content type "application/json" not found.')
-           
+
         elif not 'X-Gitlab-Event' in str(self.headers):
             logger_warning('Ignoring Request. Expected header "X-Gitlab-Event" not found.')
 
@@ -122,7 +122,7 @@ class R10kwebhook(SimpleHTTPRequestHandler):
             if self.path == '/api/v1/r10k/environment/':
                 try:
                     # why split: e.g. take 'dev' out of 'refs/heads/dev'
-                    r10k_environment = payload_json["ref"].split("/")[-1] 
+                    r10k_environment = payload_json["ref"].split("/")[-1]
                 except KeyError:
                     logger_warning('Could not find key "ref" in json payload.')
                     return
@@ -169,6 +169,7 @@ with open(config_file, 'r', encoding='utf-8') as f:
     config = configparser.ConfigParser()
     config.read_file(f)
 
+#########################
 # parse configs
 logger_info('Parsing configs from "' + config_file + '"...')
 
@@ -191,20 +192,22 @@ except configparser.NoOptionError:
     logger_warning('Not using basic authentication.')
 
 
+#########################
 # Build HTTPServer, depending on configured listen_address
 try:
     httpd = HTTPServer((listen_addr, int(listen_port)), R10kwebhook)
     logger_info('Bound address "' + listen_addr + '", port "' + listen_port + '" (ipv4 - only)')
 except socket.gaierror:
-    logger_debug('Could not bind address "' + listen_addr + '". Trying ipv6...')
+    logger_info('Could not bind address "' + listen_addr + '". Trying ipv6...')
     httpd = HTTPServerV6((listen_addr, int(listen_port)), R10kwebhook)
     logger_info('Bound address "' + listen_addr + '", port "' + listen_port + '" (ipv6 + ipv4)')
-    
+
 # The webhook provides both http and https sockets
 # For https, there's at least ssl_key and ssl_cert required. Param ssl_ca is optional.
 # If there is no ssl section in the config file, the webhook uses http as fallback.
 httpd.socket = get_r10kwebhook_socket(config, httpd)
 
+#########################
 # start http server
 logger_info('r10k webhook started.')
 httpd.serve_forever()
