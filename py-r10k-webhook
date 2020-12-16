@@ -2,6 +2,7 @@
 
 import http, os, json, re, sys, syslog, configparser, socket, ssl, base64
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from threading import Thread
 
 #######################################################################
 ## functions
@@ -27,11 +28,11 @@ def logger_debug(log_text):
 # config parser
 def get_r10kwebhook_config(config, section, option, default_value=None):
     if config.has_option(section, option):
-        logger_debug('Found value for [' + section + ']/[' + option + '] in config file: "' + config.get(section, option) + '"')
+        logger_debug('Found value for [' + section + ']/[' + option + '] in config file: \'' + config.get(section, option) + '\'')
         return config.get(section, option)
 
     elif default_value != None:
-        logger_debug('Using pre-defined value for [' + section + ']/[' + option + '], as no config is given in config file: "' + default_value + '"')
+        logger_debug('Using pre-defined value for [' + section + ']/[' + option + '], as no config is given in config file: \'' + default_value + '\'')
         return default_value
 
     else:
@@ -57,8 +58,16 @@ def get_r10kwebhook_socket(config, httpd):
             return ssl.wrap_socket(httpd.socket, certfile=ssl_cert, keyfile=ssl_key, server_side=True)
 
     else:
-        logger_warning('Section "ssl" is not configured in ' + config_file + '. Falling back to HTTP - only')
+        logger_warning('Section \'ssl\' is not configured in ' + config_file + '. Falling back to HTTP - only')
         return httpd.socket
+
+def trigger_r10k_environment_deployment (r10k_environment):
+    os.environ['R10KENV'] = r10k_environment
+    os.system(r10k_environment_command)
+
+def trigger_r10k_module_deployment (r10k_modulename):
+    os.environ['R10KMODULE'] = r10k_modulename
+    os.system(r10k_module_command)
 
 #######################################################################
 ## Method Overriding of SimpleHTTPRequestHandler
@@ -97,13 +106,13 @@ class R10kwebhook(SimpleHTTPRequestHandler):
         # for gitlab request header see
         # https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#push-events
         if not self.headers.get_content_type() == 'application/json':
-            logger_warning('Ignoring request. Expected content type "application/json" not found.')
+            logger_warning('Ignoring request. Expected content type \'application/json\' not found.')
 
         elif not 'X-Gitlab-Event' in str(self.headers):
-            logger_warning('Ignoring Request. Expected header "X-Gitlab-Event" not found.')
+            logger_warning('Ignoring Request. Expected header \'X-Gitlab-Event\' not found.')
 
         elif not 'Push Hook' in str(self.headers):
-            logger_warning('Ignoring Request. Expected X-Gitlab-Event: "Push Hook" not found in headers.')
+            logger_warning('Ignoring Request. Expected X-Gitlab-Event: \'Push Hook\' not found in headers.')
 
         elif base64key != None and not ('Authorization' in str(self.headers) and str('Basic ' + base64key) in str(self.headers)):
             logger_warning('Ignoring Request. Authorization failed.')
@@ -117,18 +126,16 @@ class R10kwebhook(SimpleHTTPRequestHandler):
                 payload_json = json.loads(payload.decode('utf8'))
                 if self.path == '/api/v1/r10k/environment/':
                     # split: e.g. take 'dev' out of 'refs/heads/dev'
-                    r10k_environment = payload_json["ref"].split("/")[-1]
-                    logger_info('Triggering r10k environment deployment for env "' + r10k_environment + '"...')
-                    os.environ['R10KENV'] = r10k_environment
-                    os.system(r10k_environment_command)
+                    r10k_environment = payload_json['ref'].split('/')[-1]
+                    logger_info('Triggering r10k environment deployment for env \'' + r10k_environment + '\'...')
+                    Thread(target=trigger_r10k_environment_deployment, args=(r10k_environment, )).start()
                 elif self.path == '/api/v1/r10k/module/':
                     # split: take the string behind the last '-' to support common Puppet module names
-                    r10k_modulename = payload_json["project"]["name"].split("-")[-1]
-                    logger_info('Triggering r10k module deployment for mod "' + r10k_modulename + '"...')
-                    os.environ['R10KMODULE'] = r10k_modulename
-                    os.system(r10k_module_command)
+                    r10k_modulename = payload_json['project']['name'].split('-')[-1]
+                    logger_info('Triggering r10k module deployment for module \'' + r10k_modulename + '\'...')
+                    Thread(target=trigger_r10k_module_deployment, args=(r10k_modulename, )).start()
                 else:
-                    logger_warning('Ignoring path "' + self.path + '".')
+                    logger_warning('Ignoring path \'' + self.path + '\'.')
             except KeyError as key_xcpt:
                 logger_warning('Could not find key in payload: ' + str(key_xcpt))
             except json.decoder.JSONDecodeError as json_xcpt:
@@ -147,7 +154,7 @@ try:
     config_file = sys.argv[1]
 
 except IndexError:
-    logger_error('Missing config file in params. Syntax: "' + sys.argv[0] + ' /path/to/<config.ini>"')
+    logger_error('Missing config file in params. Syntax: \'' + sys.argv[0] + ' /path/to/<config.ini>\'')
     exit(1)
 
 # read the config file into the configparser
@@ -157,13 +164,13 @@ with open(config_file, 'r', encoding='utf-8') as f:
 
 #########################
 # parse configs
-logger_info('Parsing configs from "' + config_file + '"...')
+logger_info('Parsing configs from \'' + config_file + '\'...')
 
 # for ssl params see function get_r10kwebhook_socket
 listen_addr              = get_r10kwebhook_config(config, 'main', 'listen_addr')
 listen_port              = get_r10kwebhook_config(config, 'main', 'listen_port')
-r10k_module_command      = get_r10kwebhook_config(config, 'r10k', 'r10k_module_command', 'r10k deploy environment "$R10KENV" -v -p')
-r10k_environment_command = get_r10kwebhook_config(config, 'r10k', 'r10k_environment_command', 'r10k deploy module "$R10KMODULE" -v')
+r10k_environment_command = get_r10kwebhook_config(config, 'r10k', 'r10k_environment_command', 'r10k deploy environment "$R10KENV" -pv')
+r10k_module_command      = get_r10kwebhook_config(config, 'r10k', 'r10k_module_command', 'r10k deploy module "$R10KMODULE" -v')
 
 # prepare basic auth
 try:
@@ -171,7 +178,7 @@ try:
     basic_auth_pass = get_r10kwebhook_config(config, 'auth', 'pass')
     # encode user:pass string
     logger_info('Configuring basic auth...')
-    base64key       = base64.b64encode(bytes(basic_auth_user + ':' + basic_auth_pass, 'utf-8')).decode("utf-8")
+    base64key       = base64.b64encode(bytes(basic_auth_user + ':' + basic_auth_pass, 'utf-8')).decode('utf-8')
 
 except configparser.NoOptionError:
     base64key = None
@@ -182,11 +189,11 @@ except configparser.NoOptionError:
 # Build HTTPServer, depending on configured listen_address
 try:
     httpd = HTTPServer((listen_addr, int(listen_port)), R10kwebhook)
-    logger_info('Bound address "' + listen_addr + '", port "' + listen_port + '" (ipv4 - only)')
+    logger_info('Bound address \'' + listen_addr + '\', port \'' + listen_port + '\' (ipv4 - only)')
 except socket.gaierror:
-    logger_info('Could not bind address "' + listen_addr + '". Trying ipv6...')
+    logger_info('Could not bind address \'' + listen_addr + '\'. Trying ipv6...')
     httpd = HTTPServerV6((listen_addr, int(listen_port)), R10kwebhook)
-    logger_info('Bound address "' + listen_addr + '", port "' + listen_port + '" (ipv6 + ipv4)')
+    logger_info('Bound address \'' + listen_addr + '\', port \'' + listen_port + '\' (ipv6 + ipv4)')
 
 # The webhook provides both http and https sockets
 # For https, there's at least ssl_key and ssl_cert required. Param ssl_ca is optional.
