@@ -54,8 +54,8 @@ listen_addr = ::
 listen_port = 8443
 
 [r10k]
-r10k_module_command = r10k deploy module "$R10KMODULE" -v; /my/post/hook/script "$R10KMODULE"
 r10k_environment_command = r10k deploy environment "$R10KENV" -pv; /my/fancy/slack/plugin "$R10KENV"
+r10k_module_command = r10k deploy module "$R10KMODULE" -v; /my/post/hook/script "$R10KMODULE"
 
 [ssl]
 ssl_cert = /etc/ssl/hook.pem
@@ -93,6 +93,8 @@ Note: This is an just-working exmaple unit file. For securing the service please
 
 One could configure all parts using puppet. For that you'll need the modules [vcsrepo](https://forge.puppet.com/puppetlabs/vcsrepo), [inifile](https://forge.puppet.com/modules/puppetlabs/inifile) and [systemd](https://forge.puppet.com/modules/camptocamp/systemd).
 
+Configure Gitlab by navigating to control-repo / Settings / Webhooks and adding a Push-Hook with URL `https://user:pass@host:port/api/v1/r10k/environment/`. For adding the hook to a module use the URI `https://user:pass@host:port/api/v1/r10k/module/`
+
 ##  6. <a name='Testing'></a>Testing
 
 Test your configs by following the logs:
@@ -112,6 +114,7 @@ curl -X POST -H "Content-Type: application/json" -H "X-Gitlab-Event: Push Hook" 
 
 ##  7. <a name='Limitations'></a>Limitations
 * Currently, there's only gitlab supported. More information about gitlab hooks can be found [here](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#webhook-endpoint-tips) and [here](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#push-events)
+* The hook can only be triggered by a push event. One may check the Merge Request settings (merge commit required)
 * Logging facilitiy is currently hard-coded local0. One may implement more complex logging libraries for higher requirements.
 * One could improve thread handling as there's currently no errorhandling on started threads.
 * There are no automated Code Tests, but the hook is working stable on Ubuntu focal (20.04) and Python 3.8.5 :smile:
