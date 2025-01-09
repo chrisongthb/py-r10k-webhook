@@ -47,15 +47,20 @@ def get_r10kwebhook_socket(config, httpd):
         ssl_cert = get_r10kwebhook_config(config, 'ssl', 'ssl_cert')
         ssl_key = get_r10kwebhook_config(config, 'ssl', 'ssl_key')
 
+        # prepare ssl context
+        context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=ssl_cert, keyfile=ssl_key)
+
         # get optional SSL CA param
         try:
             ssl_ca = get_r10kwebhook_config(config, 'ssl', 'ssl_ca')
             logger_debug('Configuring HTTPS with ssl_cert, ssl_key, ssl_ca')
-            return ssl.wrap_socket(httpd.socket, certfile=ssl_cert, keyfile=ssl_key, ca_certs=ssl_ca, server_side=True)
+            context.load_verify_locations(cafile=ssl_cert)
 
         except configparser.NoOptionError:
             logger_warning('Could not configure ssl_ca for https socket. Using weak SSL (only ssl_cert + ssl_key).')
-            return ssl.wrap_socket(httpd.socket, certfile=ssl_cert, keyfile=ssl_key, server_side=True)
+
+        return context.wrap_socket(httpd.socket, server_side=True)
 
     else:
         logger_warning('Section \'ssl\' is not configured in ' + config_file + '. Falling back to HTTP - only')
